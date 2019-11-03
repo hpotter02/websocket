@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -279,6 +280,8 @@ type Conn struct {
 
 	readDecompress         bool // whether last read frame had RSV1 set
 	newDecompressionReader func(io.Reader) io.ReadCloser
+
+	isHyBi0 bool
 }
 
 func newConn(conn net.Conn, isServer bool, readBufferSize, writeBufferSize int, writeBufferPool BufferPool, br *bufio.Reader, writeBuf []byte) *Conn {
@@ -576,21 +579,22 @@ func (w *messageWriter) flushFrame(final bool, extra []byte) error {
 		// Adjust up if mask not included in the header.
 		framePos = 4
 	}
-
-	switch {
-	case length >= 65536:
-		c.writeBuf[framePos] = b0
-		c.writeBuf[framePos+1] = b1 | 127
-		binary.BigEndian.PutUint64(c.writeBuf[framePos+2:], uint64(length))
-	case length > 125:
-		framePos += 6
-		c.writeBuf[framePos] = b0
-		c.writeBuf[framePos+1] = b1 | 126
-		binary.BigEndian.PutUint16(c.writeBuf[framePos+2:], uint16(length))
-	default:
-		framePos += 8
-		c.writeBuf[framePos] = b0
-		c.writeBuf[framePos+1] = b1 | byte(length)
+	if !c.isHyBi0 {
+		switch {
+		case length >= 65536:
+			c.writeBuf[framePos] = b0
+			c.writeBuf[framePos+1] = b1 | 127
+			binary.BigEndian.PutUint64(c.writeBuf[framePos+2:], uint64(length))
+		case length > 125:
+			framePos += 6
+			c.writeBuf[framePos] = b0
+			c.writeBuf[framePos+1] = b1 | 126
+			binary.BigEndian.PutUint16(c.writeBuf[framePos+2:], uint16(length))
+		default:
+			framePos += 8
+			c.writeBuf[framePos] = b0
+			c.writeBuf[framePos+1] = b1 | byte(length)
+		}
 	}
 
 	if !c.isServer {
@@ -611,7 +615,13 @@ func (w *messageWriter) flushFrame(final bool, extra []byte) error {
 	}
 	c.isWriting = true
 
-	err := c.write(w.frameType, c.writeDeadline, c.writeBuf[framePos:w.pos], extra)
+	var err error
+	if !c.isHyBi0 {
+		err = c.write(w.frameType, c.writeDeadline, c.writeBuf[framePos:w.pos], extra)
+	} else {
+		framePos += 10
+		err = c.write(w.frameType, c.writeDeadline, append([]byte{0x00}, append(c.writeBuf[framePos:w.pos], 0xff)...), extra)
+	}
 
 	if !c.isWriting {
 		panic("concurrent write to websocket connection")
@@ -1009,6 +1019,11 @@ type messageReader struct{ c *Conn }
 func (r *messageReader) Read(b []byte) (int, error) {
 	c := r.c
 	if c.messageReader != r {
+		return 0, io.EOF
+	}
+	if c.isHyBi0 {
+		c.br.Read(b)
+		fmt.Printf("read, %x", b)
 		return 0, io.EOF
 	}
 

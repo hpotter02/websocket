@@ -258,7 +258,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	if u.HandshakeTimeout > 0 {
 		netConn.SetWriteDeadline(time.Time{})
 	}
-
+	c.isHyBi0 = false
 	return c, nil
 }
 

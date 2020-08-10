@@ -1,3 +1,7 @@
+This Verison Of Gorilla WebsSocket contains some code that lets it serve Hybi0 websckets.
+It is in no way intended to be nice to look at or "best practice".
+This project was made out of necessity and it was not tested with anything but a kindle kt5.
+
 # Gorilla WebSocket
 
 [![GoDoc](https://godoc.org/github.com/gorilla/websocket?status.svg)](https://godoc.org/github.com/gorilla/websocket)
